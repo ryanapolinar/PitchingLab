@@ -17,8 +17,8 @@ from visualizer import PitchVisualizer
 st.set_page_config(page_title="Pitching Lab Engine", layout="wide")
 init_plotting_theme()
 
-st.title("🔬 Pitching Lab Comprehensive Dashboard")
-st.caption("Production-grade decoupled data visualization engine running over local container pipelines.")
+st.title("🔬 Pitching Lab")
+st.caption("Enter a pitcher's first and last name in the side bar to get a quick analytics summary of their performance.")
 
 # ==============================================================================
 # SIDEBAR CONFIGURATION MATRIX
@@ -98,7 +98,7 @@ with st.container():
 # ==============================================================================
 # FANGRAPHS METRICS GRID (DIRECT RENDER OVER PRE-MAPPED SUMMARY ROW)
 # ==============================================================================
-st.markdown("##### 📊 Seasonal Performance Metrics")
+st.markdown("### Seasonal Performance Metrics")
 
 if df_fg_leaderboard is not None and not df_fg_leaderboard.empty:
     # Pull the first row since it's already mapped and isolated for this pitcher
@@ -168,7 +168,7 @@ with col_graph_canvas:
     # VELOCITY DISTRIBUTIONS (50% DESKTOP WIDTH / 100% MOBILE WIDTH)
     # --------------------------------------------------------------------------
     st.markdown("### ⚡ Velocity Distribution Grid")
-    st.caption("Density curves tracking velocity consistency vs. league average baselines (dashed lines).")
+    st.caption("Visualizes velocity of each pitch type, categorized by the pitch thrown.")
 
     v_selection = alt.selection_point(fields=['pitch_type'], bind='legend')
 
@@ -225,7 +225,7 @@ with col_graph_canvas:
     # ROLLING USAGE TIMELINE (EXPANDED STRETCH FOR READABILITY)
     # --------------------------------------------------------------------------
     st.markdown("### 📈 5-Game Rolling Pitch Usage Trend")
-    st.caption("Traces evolution of pitch selection mixes over time. Click data points to audit game dates.")
+    st.caption("Traces evolution of pitch selection mixes over time.")
 
     df_rolling = df_processed.copy()
     df_rolling['game_date'] = pd.to_datetime(df_rolling['game_date'])
@@ -294,26 +294,24 @@ with col_graph_canvas:
     # --------------------------------------------------------------------------
     # MOVEMENT BREAK SCATTER PLOT (STRICT 1:1 MATPLOTLIB BOUNDS)
     # --------------------------------------------------------------------------
-    st.markdown("### 🎯 Horizontal & Vertical Movement Profiles")
-    st.caption("Tracks movement mechanics relative to an official rulebook strike zone frame baseline.")
-
-    import matplotlib.patches as patches # Ensure patches is available for drawing the rect
+    st.markdown("### 🎯 Pitch Movement Scatter Plot")
+    st.caption("Tracks Induced Vertical Break (iVB) and Horizontal Break. We use iVB to track movement based on the spin of the ball, and not gravity. Horizontal break is adjusted to glove side and arm side based on the pitcher's handedness.")
 
     # 1. Allocate a dedicated square bounding canvas frame seed
     fig_break, ax_break = plt.subplots(figsize=(5, 5))
 
     # 2. Route your processed pipeline data layer into your visualizer class
-    PitchVisualizer.render_break_plot(df_processed, ax_break)
+    PitchVisualizer.render_break_plot(df_processed, ax_break, bio_meta)
 
     # 3. CRITICAL: Pass use_container_width=False so Streamlit respects the square dimensions
-    st.pyplot(fig_break, use_container_width=False)
+    st.pyplot(fig_break, width='content')
 
 # ==============================================================================
 # STATCAST ARSENAL METRICS SUMMARY GRID (STAYS UNCONSTRAINED FULL-WIDTH Below)
 # ==============================================================================
 st.markdown("---")
 st.subheader("📊 Statcast Arsenal Performance Summary")
-st.caption("Comprehensive pitch design metrics and run expectancy tracking grouped by pitch classification.")
+st.caption("Comprehensive pitch metrics aggregated by pitch type. Highlighted cells indicate better performance for a given pitch.")
 
 if df_group is not None and not df_group.empty:
     display_columns = {

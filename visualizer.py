@@ -213,27 +213,14 @@ class PitchVisualizer:
             ax.text(0.5, 0.5, f"Usage Trend Render Error: {str(e)}", ha='center', va='center')
 
     @staticmethod
-    def render_break_plot(df_processed: pd.DataFrame, ax: plt.Axes):
+    def render_break_plot(df_processed: pd.DataFrame, ax: plt.Axes, bio_meta: dict = None):
         """
-        Renders a high-fidelity, standardized 1:1 aspect ratio break profile
-        complete with centerview home plate and strike zone reference lines.
-        Bypasses widescreen browser distortion natively.
+        Renders a 1:1 geometric aspect ratio pitch movement profile complete with 
+        symmetrical coordinate boundaries, a strike zone box, and handedness-aware axis labels.
         """
-        # 1. Base grid line configuration & structural markers
+        # Base grid line configuration & structural markers
         ax.axhline(0, color='#E2E8F0', linestyle='--', linewidth=1, zorder=1)
         ax.axvline(0, color='#E2E8F0', linestyle='--', linewidth=1, zorder=1)
-        
-        '''
-        # 2. Inject an official rulebook Strike Zone Box centered in the background for scale
-        # Home plate is 17 inches wide (-8.5 to +8.5 on the horizontal map)
-        # The vertical tracking window is centered on the canvas spanning 24 inches (-12 to +12)
-        strike_zone = patches.Rectangle(
-            (-8.5, -12.0), 17.0, 24.0, 
-            linewidth=1.5, edgecolor='#94A3B8', facecolor='none', 
-            linestyle='-', zorder=2, label='Strike Zone Ref'
-        )
-        ax.add_patch(strike_zone)
-        '''
         
         # Handle empty/missing data scenarios gracefully 
         if df_processed is None or df_processed.empty or 'pfx_x' not in df_processed.columns or 'pfx_z' not in df_processed.columns:
@@ -243,15 +230,15 @@ class PitchVisualizer:
         # Filter out missing pitch types or blank rows
         df_clean = df_processed[df_processed['pitch_type'].notnull() & (df_processed['pitch_type'].astype(str).str.strip() != '')].copy()
         
-        # Force coordinates to numeric arrays just in case string buffers leaked through
+        # Force coordinates to numeric arrays
         df_clean['pfx_x'] = pd.to_numeric(df_clean['pfx_x'], errors='coerce')
         df_clean['pfx_z'] = pd.to_numeric(df_clean['pfx_z'], errors='coerce')
         df_clean = df_clean.dropna(subset=['pfx_x', 'pfx_z'])
 
-        # Determine sorting order based on volume to keep legend consistent with the table
+        # Determine sorting order based on volume
         pitch_order = df_clean['pitch_type'].value_counts().index.tolist()
         
-        # 3. Scatter plot tracking points by grouped pitch classification
+        # Scatter plot tracking points by grouped pitch classification
         for p_type in pitch_order:
             group = df_clean[df_clean['pitch_type'] == p_type]
             p_upper = str(p_type).upper().strip()
@@ -270,16 +257,33 @@ class PitchVisualizer:
                 zorder=3
             )
             
-        # 4. CRITICAL FIX: Lock the physical canvas aspect ratio to a true 1:1 scale
-        # This prevents the chart from stretching out horizontally inside Streamlit's grid layouts
+        # Lock the physical canvas aspect ratio to a true 1:1 scale
         ax.set_aspect('equal', adjustable='box')
         
-        # 5. Lock boundaries symmetrically (+/- 25 inches frames any standard MLB arsenal beautifully)
+        # Lock boundaries symmetrically
         ax.set_xlim(-25, 25)
         ax.set_ylim(-25, 25)
         
-        # 6. Formatting axis typography and structural labels
-        ax.set_xlabel("Horizontal Break (in)", fontsize=10, labelpad=5, fontweight='semibold', color='#4A5568')
+        # DYNAMIC AXIS LABELS: Parse handedness safely
+        # Default to RHP orientation if metadata lookup fails or is missing
+        throws = "R"
+        if bio_meta and isinstance(bio_meta, dict):
+            # Check if it's a nested dict structure or a direct string value
+            hand_data = bio_meta.get('throws', bio_meta.get('pitchHand', 'R'))
+            if isinstance(hand_data, dict):
+                throws = hand_data.get('code', 'R')
+            else:
+                throws = str(hand_data)
+        
+        throws = throws.upper().strip()
+
+        if throws == "L":
+            x_label_text = "← Arm Side | Horizontal Break (in) | Glove Side →"
+        else:
+            x_label_text = "← Glove Side | Horizontal Break (in) | Arm Side →"
+        
+        # 5. Formatting axis typography and structural labels
+        ax.set_xlabel(x_label_text, fontsize=10, labelpad=5, fontweight='semibold', color='#4A5568')
         ax.set_ylabel("Induced Vertical Break (in)", fontsize=10, labelpad=5, fontweight='semibold', color='#4A5568')
         
         # Standardize step interval grid markers
@@ -288,8 +292,6 @@ class PitchVisualizer:
         
         # Light clean aesthetic grid behind the drawings
         ax.grid(True, which='both', color='#F1F5F9', linestyle=':', linewidth=0.5, zorder=0)
-        
-        # Clean micro legend configuration
         ax.legend(loc='upper right', fontsize=8, framealpha=0.9, facecolor='#FFFFFF', edgecolor='#E2E8F0')
 
     @staticmethod
