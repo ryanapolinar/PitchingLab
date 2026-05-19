@@ -1,0 +1,7 @@
+streamlit
+matplotlib
+pandas
+altair
+numpy
+requests
+Pillow
