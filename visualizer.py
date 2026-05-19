@@ -1,0 +1,368 @@
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+import numpy as np
+import math
+import requests
+import matplotlib.colors as mcolors
+from PIL import Image
+from io import BytesIO
+import matplotlib.gridspec as gridspec
+from config import (
+    DICT_PITCH, DICT_COLOR, FANGRAPHS_STATS_DICT, PITCH_STATS_DICT, 
+    TABLE_COLUMNS, CMAP_SUM, CMAP_SUM_R, COLOR_STATS_TO_HIGHLIGHT,
+    FONT_PROPERTIES, FONT_PROPERTIES_TITLES, FONT_PROPERTIES_AXES
+)
+
+class PitchVisualizer:
+    @staticmethod
+    def render_headshot(player_id: int, ax: plt.Axes):
+        url = f'https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_640,q_auto:best/v1/people/{player_id}/headshot/silo/current.png'
+        try:
+            res = requests.get(url, timeout=5)
+            img = Image.open(BytesIO(res.content))
+            ax.imshow(img, extent=[0, 1, 0, 1], origin='upper')
+        except Exception:
+            ax.text(0.5, 0.5, "Photo N/A", ha='center', va='center')
+        ax.axis('off')
+
+    @staticmethod
+    def render_biographical_text(bio_data: dict, season: int, title_text: str, ax: plt.Axes):
+        name = bio_data.get('fullName', 'Unknown Profile')
+        hand = bio_data.get('pitchHand', {}).get('code', 'R')
+        age = bio_data.get('currentAge', '--')
+        height = bio_data.get('height', '--')
+        weight = bio_data.get('weight', '--')
+
+        ax.text(0.5, 0.95, name, va='top', ha='center', fontsize=22, weight='bold')
+        ax.text(0.5, 0.60, f'{hand}HP, Age: {age}, {height}/{weight}', va='top', ha='center', fontsize=12)
+        ax.text(0.5, 0.30, title_text, va='top', ha='center', fontsize=14, color='#1f77b4', weight='semibold')
+        ax.axis('off')
+
+    @staticmethod
+    def render_fangraphs_table(pitcher_id: int, df_leaderboard: pd.DataFrame, stats: list, season: int, ax: plt.Axes):
+        """Draws the FanGraphs season summary banner block."""
+        if df_leaderboard.empty:
+            ax.text(0.5, 0.5, "FanGraphs Baseline Matrix N/A", ha='center', va='center')
+            ax.axis('off')
+            return
+
+        matched_row = df_leaderboard[df_leaderboard['xMLBAMID'] == pitcher_id]
+        if matched_row.empty:
+            ax.text(0.5, 0.5, f"No FanGraphs Stats Found For This Season", ha='center', va='center')
+            ax.axis('off')
+            return
+
+        df_row = matched_row[stats].reset_index(drop=True).astype(object)
+        for col in stats:
+            val = df_row.loc[0, col]
+            fmt_str = FANGRAPHS_STATS_DICT.get(col, {}).get('format', '.2f')
+            df_row.loc[0, col] = format(float(val), fmt_str) if (pd.notnull(val) and val != '---') else '---'
+
+        table_fg = ax.table(cellText=df_row.values, colLabels=stats, cellLoc='center', bbox=[0, 0, 1, 1])
+        table_fg.set_fontsize(12)
+        
+        for i, col in enumerate(stats):
+            hdr = FANGRAPHS_STATS_DICT.get(col, {}).get('table_header', col)
+            table_fg.get_celld()[(0, i)].get_text().set_text(hdr)
+        ax.axis('off')
+
+    @staticmethod
+    def render_velocity_distributions(df: pd.DataFrame, fig: plt.Figure, gs_spec, df_statcast_group: pd.DataFrame = None):
+        """Plots vertically aligned pitch distributions sharing a uniform horizontal velocity axis scale."""
+        import math
+        counts = df['pitch_type'].value_counts().sort_values(ascending=False)
+        pitch_types = counts.index.tolist()
+        if not pitch_types: return
+
+        v_min = df['release_speed'].min()
+        v_max = df['release_speed'].max()
+        if pd.isnull(v_min) or pd.isnull(v_max):
+            v_min, v_max = 70, 100
+        
+        xlim_min = math.floor(v_min / 5) * 5
+        xlim_max = math.ceil(v_max / 5) * 5
+        x_ticks = list(range(xlim_min, xlim_max + 5, 5))
+
+        inner_grid = gridspec.GridSpecFromSubplotSpec(len(pitch_types), 1, subplot_spec=gs_spec)
+        
+        for idx, p_type in enumerate(pitch_types):
+            ax_sub = fig.add_subplot(inner_grid[idx])
+            subset = df[df['pitch_type'] == p_type]
+            color = DICT_COLOR.get(p_type, '#808080')
+            
+            if subset['release_speed'].nunique() <= 1:
+                ax_sub.plot([subset['release_speed'].mean(), subset['release_speed'].mean()], [0, 1], linewidth=4, color=color, zorder=20)
+            else:
+                sns.kdeplot(subset['release_speed'], ax=ax_sub, fill=True, color=color, alpha=0.4,
+                            clip=(subset['release_speed'].min(), subset['release_speed'].max()))
+            
+            p_mean = subset['release_speed'].mean()
+            if pd.notnull(p_mean):
+                ax_sub.axvline(p_mean, color=color, linestyle='--', linewidth=1.5)
+            
+            if df_statcast_group is not None and not df_statcast_group.empty and 'pitch_type' in df_statcast_group.columns:
+                lg_subset = df_statcast_group[df_statcast_group['pitch_type'] == p_type]
+                if not lg_subset.empty and 'release_speed' in lg_subset.columns:
+                    lg_mean = pd.to_numeric(lg_subset['release_speed'], errors='coerce').mean()
+                    if pd.notnull(lg_mean):
+                        ax_sub.axvline(lg_mean, color=color, linestyle=':', linewidth=1.5)
+
+            ax_sub.set_ylabel(p_type, rotation=0, labelpad=20, va='center', weight='bold', fontsize=12)
+            ax_sub.set_xlabel('')
+            ax_sub.set_yticks([])
+            
+            ax_sub.set_xlim(xlim_min, xlim_max)
+            ax_sub.set_xticks(x_ticks)
+            
+            ax_sub.spines['top'].set_visible(False)
+            ax_sub.spines['right'].set_visible(False)
+            ax_sub.spines['left'].set_visible(False)
+            ax_sub.grid(axis='x', linestyle='--', alpha=0.6)
+            
+            if idx == 0:
+                ax_sub.set_title("Pitch Velocity Distribution", fontdict=FONT_PROPERTIES_TITLES)
+
+            if idx < len(pitch_types) - 1:
+                ax_sub.tick_params(axis='x', labelcolor='none', colors='none')
+                ax_sub.spines['bottom'].set_visible(False)
+                
+        ax_sub.set_xlabel('Velocity (mph)', fontdict=FONT_PROPERTIES_AXES)
+
+    @staticmethod
+    def render_rolling_pitch_usage(df: pd.DataFrame, ax: plt.Axes, window: int = 5):
+        """
+        Renders the game-by-game rolling pitch usage trend chart matching 
+        the original implementation exactly, aligned with dashboard configuration styles.
+        """
+        try:
+            from matplotlib.ticker import MaxNLocator
+            import matplotlib.ticker as mtick
+
+            # Calculate the proportion of each pitch type per game
+            df_game_group = pd.DataFrame((df.groupby(['game_pk', 'game_date', 'pitch_type'])['release_speed'].count() /
+                                    df.groupby(['game_pk', 'game_date'])['release_speed'].count()).reset_index())
+
+            # Create a complete list of games
+            all_games = pd.Series(df_game_group['game_pk'].unique())
+
+            # Create a complete list of pitch types
+            all_pitch_types = pd.Series(df_game_group['pitch_type'].unique())
+
+            # Create a DataFrame with all combinations of games and pitch types
+            all_combinations = pd.MultiIndex.from_product([all_games, all_pitch_types], names=['game_pk', 'pitch_type']).to_frame(index=False)
+
+            # Merge this DataFrame with your original DataFrame to ensure all combinations are included
+            df_complete = pd.merge(all_combinations, df_game_group, on=['game_pk', 'pitch_type'], how='left')
+
+            # Fill missing values with 0
+            df_complete['release_speed'] = df_complete['release_speed'].fillna(0)
+
+            # Create mappings for game numbers and game dates
+            game_list = df.sort_values(by='game_date')['game_pk'].unique()
+            range_list = list(range(1, len(game_list) + 1))
+            game_to_range = dict(zip(game_list, range_list))
+            game_to_date = df.set_index('game_pk')['game_date'].to_dict()
+
+            # Map game dates and game numbers to the complete DataFrame
+            df_complete['game_date'] = df_complete['game_pk'].map(game_to_date)
+            df_complete = df_complete.sort_values(by='game_date')
+            df_complete['game_number'] = df_complete['game_pk'].map(game_to_range)
+
+            # Plot the rolling pitch usage for each pitch type
+            sorted_value_counts = df['pitch_type'].value_counts().sort_values(ascending=False)
+            items_in_order = sorted_value_counts.index.tolist()
+            max_roll = []
+
+            for i in items_in_order:
+                # Filter to match specific color mapping keys safely
+                pitch_color_key = df[df['pitch_type'] == i]['pitch_type'].values[0]
+                color_hex = DICT_COLOR.get(pitch_color_key, '#808080')
+                
+                sns.lineplot(
+                    x=range(1, max(df_complete[df_complete['pitch_type'] == i]['game_number']) + 1),
+                    y=df_complete[df_complete['pitch_type'] == i]['release_speed'].rolling(window).sum() / window,
+                    color=color_hex,
+                    ax=ax, 
+                    linewidth=3
+                )
+                max_roll.append(np.max(df_complete[df_complete['pitch_type'] == i]['release_speed'].rolling(window).sum() / window))
+
+            # Adjust x-axis limits to start from the window size
+            ax.set_xlim(window, len(game_list))
+            
+            # Prevent empty slice runtime errors on y-limits if history is short
+            if max_roll and not np.isnan(np.max(max_roll)):
+                ax.set_ylim(0, math.ceil(np.max(max_roll) * 10) / 10)
+            else:
+                ax.set_ylim(0, 1.0)
+
+            # Set axis labels and title using matching global configuration font properties
+            ax.set_xlabel('Game', fontdict=FONT_PROPERTIES_AXES)
+            ax.set_ylabel('Pitch Usage', fontdict=FONT_PROPERTIES_AXES)
+            ax.set_title(f"{window} Game Rolling Pitch Usage", fontdict=FONT_PROPERTIES_TITLES)
+
+            # Set x-axis to show integer values only
+            ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+
+            # Set y-axis ticks as percentages
+            ax.yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1, decimals=0))
+            ax.grid(True, linestyle='--', alpha=0.5)
+
+        except Exception as e:
+            ax.text(0.5, 0.5, f"Usage Trend Render Error: {str(e)}", ha='center', va='center')
+
+    @staticmethod
+    def render_break_plot(df_processed: pd.DataFrame, ax: plt.Axes):
+        """
+        Renders a high-fidelity, standardized 1:1 aspect ratio break profile
+        complete with centerview home plate and strike zone reference lines.
+        Bypasses widescreen browser distortion natively.
+        """
+        # 1. Base grid line configuration & structural markers
+        ax.axhline(0, color='#E2E8F0', linestyle='--', linewidth=1, zorder=1)
+        ax.axvline(0, color='#E2E8F0', linestyle='--', linewidth=1, zorder=1)
+        
+        '''
+        # 2. Inject an official rulebook Strike Zone Box centered in the background for scale
+        # Home plate is 17 inches wide (-8.5 to +8.5 on the horizontal map)
+        # The vertical tracking window is centered on the canvas spanning 24 inches (-12 to +12)
+        strike_zone = patches.Rectangle(
+            (-8.5, -12.0), 17.0, 24.0, 
+            linewidth=1.5, edgecolor='#94A3B8', facecolor='none', 
+            linestyle='-', zorder=2, label='Strike Zone Ref'
+        )
+        ax.add_patch(strike_zone)
+        '''
+        
+        # Handle empty/missing data scenarios gracefully 
+        if df_processed is None or df_processed.empty or 'pfx_x' not in df_processed.columns or 'pfx_z' not in df_processed.columns:
+            ax.text(0.5, 0.5, "No Telemetry Break Data Available", ha='center', va='center', transform=ax.transAxes, color='#A0AEC0')
+            return
+
+        # Filter out missing pitch types or blank rows
+        df_clean = df_processed[df_processed['pitch_type'].notnull() & (df_processed['pitch_type'].astype(str).str.strip() != '')].copy()
+        
+        # Force coordinates to numeric arrays just in case string buffers leaked through
+        df_clean['pfx_x'] = pd.to_numeric(df_clean['pfx_x'], errors='coerce')
+        df_clean['pfx_z'] = pd.to_numeric(df_clean['pfx_z'], errors='coerce')
+        df_clean = df_clean.dropna(subset=['pfx_x', 'pfx_z'])
+
+        # Determine sorting order based on volume to keep legend consistent with the table
+        pitch_order = df_clean['pitch_type'].value_counts().index.tolist()
+        
+        # 3. Scatter plot tracking points by grouped pitch classification
+        for p_type in pitch_order:
+            group = df_clean[df_clean['pitch_type'] == p_type]
+            p_upper = str(p_type).upper().strip()
+            label_display = DICT_PITCH.get(p_upper, p_upper)
+            color_display = DICT_COLOR.get(p_upper, '#808080')
+            
+            ax.scatter(
+                group['pfx_x'], 
+                group['pfx_z'], 
+                label=label_display,
+                color=color_display,
+                alpha=0.65,
+                edgecolors='#FFFFFF',
+                linewidths=0.4,
+                s=45,
+                zorder=3
+            )
+            
+        # 4. CRITICAL FIX: Lock the physical canvas aspect ratio to a true 1:1 scale
+        # This prevents the chart from stretching out horizontally inside Streamlit's grid layouts
+        ax.set_aspect('equal', adjustable='box')
+        
+        # 5. Lock boundaries symmetrically (+/- 25 inches frames any standard MLB arsenal beautifully)
+        ax.set_xlim(-25, 25)
+        ax.set_ylim(-25, 25)
+        
+        # 6. Formatting axis typography and structural labels
+        ax.set_xlabel("Horizontal Break (in)", fontsize=10, labelpad=5, fontweight='semibold', color='#4A5568')
+        ax.set_ylabel("Induced Vertical Break (in)", fontsize=10, labelpad=5, fontweight='semibold', color='#4A5568')
+        
+        # Standardize step interval grid markers
+        ax.set_xticks(np.arange(-20, 21, 10))
+        ax.set_yticks(np.arange(-20, 21, 10))
+        
+        # Light clean aesthetic grid behind the drawings
+        ax.grid(True, which='both', color='#F1F5F9', linestyle=':', linewidth=0.5, zorder=0)
+        
+        # Clean micro legend configuration
+        ax.legend(loc='upper right', fontsize=8, framealpha=0.9, facecolor='#FFFFFF', edgecolor='#E2E8F0')
+
+    @staticmethod
+    def render_pitch_metrics_table(df_group: pd.DataFrame, df_statcast_group: pd.DataFrame, color_list: list, ax: plt.Axes):
+        """Restores the detailed stats spreadsheet with conditional cell shading relative to league averages."""
+        if df_group.empty:
+            ax.axis('off')
+            return
+
+        df_formatted = df_group[TABLE_COLUMNS].copy().fillna('—')
+        for col, props in PITCH_STATS_DICT.items():
+            if col in df_formatted.columns:
+                df_formatted[col] = df_formatted[col].apply(lambda x: format(x, props['format']) if isinstance(x, (int, float)) else x)
+
+        cell_colors = []
+        for _, row in df_group.iterrows():
+            row_colors = []
+            pt = row['pitch_type']
+            
+            if df_statcast_group is not None and not df_statcast_group.empty and 'pitch_type' in df_statcast_group.columns:
+                select_df = df_statcast_group[df_statcast_group['pitch_type'] == pt]
+            else:
+                select_df = pd.DataFrame()
+                
+            for col in TABLE_COLUMNS:
+                if col in COLOR_STATS_TO_HIGHLIGHT and isinstance(row[col], (int, float)) and not np.isnan(row[col]):
+                    if not select_df.empty and col in select_df.columns:
+                        b_mean = pd.to_numeric(select_df[col], errors='coerce').mean()
+                    else:
+                        b_mean = row[col]
+                    
+                    if not pd.notnull(b_mean) or b_mean == 0:
+                        b_mean = row[col]
+                    
+                    if col == 'release_speed':
+                        norm = mcolors.Normalize(vmin=b_mean * 0.95, vmax=b_mean * 1.05)
+                        c = CMAP_SUM(norm(row[col]))
+                    elif col == 'delta_run_exp_per_100':
+                        norm = mcolors.Normalize(vmin=-1.5, vmax=1.5)
+                        c = CMAP_SUM(norm(row[col]))
+                    elif col == 'xwoba':
+                        norm = mcolors.Normalize(vmin=b_mean * 0.7, vmax=b_mean * 1.3)
+                        c = CMAP_SUM_R(norm(row[col]))
+                    else:
+                        norm = mcolors.Normalize(vmin=b_mean * 0.7, vmax=b_mean * 1.3)
+                        c = CMAP_SUM(norm(row[col]))
+                    row_colors.append(mcolors.to_hex(c))
+                else:
+                    row_colors.append('#ffffff')
+            cell_colors.append(row_colors)
+
+        table = ax.table(
+            cellText=df_formatted.values, colLabels=TABLE_COLUMNS, cellLoc='center', 
+            bbox=[0, -0.1, 1, 1.1], colWidths=[2.5] + [1.0] * (len(TABLE_COLUMNS) - 1),
+            cellColours=cell_colors
+        )
+        table.auto_set_font_size(False)
+        table.set_fontsize(12)
+        table.scale(1, 0.5)
+
+        headers = [r'$\bf{Pitch\ Name}$'] + [PITCH_STATS_DICT[x]['table_header'] for x in TABLE_COLUMNS[1:]]
+        for idx, h_text in enumerate(headers):
+            table.get_celld()[(0, idx)].get_text().set_text(h_text)
+
+        for r_idx in range(len(df_formatted)):
+            table.get_celld()[(r_idx + 1, 0)].get_text().set_fontweight('bold')
+            if r_idx < len(color_list):
+                c_cell = table.get_celld()[(r_idx + 1, 0)]
+                c_cell.set_facecolor(color_list[r_idx])
+                pitch_text = df_formatted.iloc[r_idx]['pitch_description']
+                if pitch_text in ['Split-Finger', 'Slider', 'Changeup']:
+                    c_cell.set_text_props(color='#000000', fontweight='bold')
+                else:
+                    c_cell.set_text_props(color='#ffffff', fontweight='bold')
+
+        ax.axis('off')
