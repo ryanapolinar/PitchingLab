@@ -37,7 +37,7 @@ st.sidebar.markdown("""
     <a href="#seasonal-performance-metrics" style="text-decoration: none; color: #3182ce; font-weight: bold;">Seasonal Performance Metrics</a><br>
     <a href="#interactive-pitch-analytics" style="text-decoration: none; color: #3182ce; font-weight: bold;">Interactive Pitch Analytics</a><br>
     <a href="#arsenal-data" style="text-decoration: none; color: #3182ce; font-weight: bold;">Statcast Table</a><br>
-    <a href="#Pitcher Report" style="text-decoration: none; color: #3182ce; font-weight: bold;">Pitcher Report</a><br>
+    <a href="#pitcher-report" style="text-decoration: none; color: #3182ce; font-weight: bold;">Pitcher Report</a><br>
 </div>
 """, unsafe_allow_html=True)
 
