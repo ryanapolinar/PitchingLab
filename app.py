@@ -26,7 +26,7 @@ st.caption("Enter a pitcher's first and last name in the side bar to get a quick
 # SIDEBAR CONFIGURATION
 # ==============================================================================
 st.sidebar.header("Pitcher Inputs")
-pitcher_name = st.sidebar.text_input("Pitcher Name", value="Mason Miller")
+pitcher_name = st.sidebar.text_input("Pitcher Name", value="Shohei Ohtani")
 season_year = st.sidebar.number_input("Season Year", min_value=2021, max_value=2026, value=2026)
 
 st.sidebar.markdown("---")
@@ -168,11 +168,8 @@ with col_graph_canvas:
     # --------------------------------------------------------------------------
     # VELOCITY DISTRIBUTIONS (50% DESKTOP WIDTH / 100% MOBILE WIDTH)
     # --------------------------------------------------------------------------
-    st.markdown("### ⚡ Velocity Distribution Grid")
+    st.markdown("### ⚡ Pitch Velocity Distribution")
     st.caption("Visualizes velocity of each pitch type, categorized by the pitch thrown.")
-
-    
-
 
     v_selection = alt.selection_point(fields=['pitch_type'], bind='legend')
 
@@ -217,7 +214,7 @@ with col_graph_canvas:
     # --------------------------------------------------------------------------
     # ROLLING USAGE TIMELINE
     # --------------------------------------------------------------------------
-    st.markdown("### 📈 5-Game Rolling Pitch Usage Trend")
+    st.markdown("### 📈 5-Game Rolling Pitch Usage")
     st.caption("Traces evolution of pitch selection mixes over time.")
 
     df_rolling = df_processed.copy()
@@ -408,7 +405,11 @@ with st.container():
     # Note: Velocity distributions handle their own internal sub-gridspec inside the gs slot
     ax_plot_1 = fig.add_subplot(gs[3, 1:3])
     ax_plot_2 = fig.add_subplot(gs[3, 3:5])
+    # Trim width by -5% to avoid overlap
+    pos_2 = ax_plot_2.get_position()
+    ax_plot_2.set_position([pos_2.x0, pos_2.y0, pos_2.width * 0.90, pos_2.height])
     ax_plot_3 = fig.add_subplot(gs[3, 5:7])
+    
 
     ax_plot_1.grid(False)
     ax_plot_2.grid(False)

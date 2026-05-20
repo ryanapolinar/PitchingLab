@@ -267,6 +267,8 @@ class PitchVisualizer:
         Renders a 1:1 geometric aspect ratio pitch movement profile complete with 
         symmetrical coordinate boundaries, a strike zone box, and handedness-aware axis labels.
         """
+        ax.set_title('Pitch Movement Scatter Plot', fontdict=FONT_PROPERTIES_TITLES)
+
         # Base grid line configuration & structural markers
         ax.axhline(0, color='#E2E8F0', linestyle='--', linewidth=1, zorder=1)
         ax.axvline(0, color='#E2E8F0', linestyle='--', linewidth=1, zorder=1)
