@@ -41,6 +41,9 @@ CMAP_SUM = mcolors.LinearSegmentedColormap.from_list("", ['#648FFF','#FFFFFF','#
 CMAP_SUM_R = mcolors.LinearSegmentedColormap.from_list("", ['#FFB000','#FFFFFF','#648FFF'])
 COLOR_STATS_TO_HIGHLIGHT = ['release_speed', 'release_extension', 'delta_run_exp_per_100', 'whiff_rate', 'in_zone_rate', 'chase_rate', 'xwoba']
 
+SWING_CLASSIFICATIONS = ['foul_bunt','foul','hit_into_play','swinging_strike', 'foul_tip', 'swinging_strike_blocked','missed_bunt','bunt_foul_tip']
+WHIFF_CLASSIFICATIONS = ['swinging_strike', 'foul_tip', 'swinging_strike_blocked']
+
 # FanGraphs Metadata Configuration Lookup Map
 FANGRAPHS_STATS = ['IP','TBF','WHIP','ERA', 'FIP', 'K%', 'BB%', 'K-BB%']
 FANGRAPHS_STATS_DICT = {

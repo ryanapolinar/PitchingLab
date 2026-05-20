@@ -1,18 +1,15 @@
 import pandas as pd
 import numpy as np
-from config import DICT_PITCH, DICT_COLOR
+from config import DICT_PITCH, DICT_COLOR, SWING_CLASSIFICATIONS, WHIFF_CLASSIFICATIONS
 
 class StatcastProcessor:
-    SWING_CLASSIFICATIONS = ['foul_bunt','foul','hit_into_play','swinging_strike', 'foul_tip', 'swinging_strike_blocked','missed_bunt','bunt_foul_tip']
-    WHIFF_CLASSIFICATIONS = ['swinging_strike', 'foul_tip', 'swinging_strike_blocked']
-
     @classmethod
-    def clean_and_augment(cls, df: pd.DataFrame) -> pd.DataFrame:
+    def clean_and_augment(this, df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return df
         df = df.copy()
-        df['swing'] = df['description'].isin(cls.SWING_CLASSIFICATIONS)
-        df['whiff'] = df['description'].isin(cls.WHIFF_CLASSIFICATIONS)
+        df['swing'] = df['description'].isin(SWING_CLASSIFICATIONS)
+        df['whiff'] = df['description'].isin(WHIFF_CLASSIFICATIONS)
         df['in_zone'] = df['zone'] < 10
         df['out_zone'] = df['zone'] >= 10
         df['chase'] = (df['in_zone'] == False) & (df['swing'] == True)
@@ -22,7 +19,7 @@ class StatcastProcessor:
         return df
 
     @classmethod
-    def aggregate_pitch_metrics(cls, df: pd.DataFrame):
+    def aggregate_pitch_metrics(this, df: pd.DataFrame):
         """Converts raw logs into pitch aggregation matrices for the data table."""
         if df.empty:
             return pd.DataFrame(), []
@@ -62,7 +59,7 @@ class StatcastProcessor:
             'pitch_usage': 1.0, 'release_speed': np.nan, 'pfx_z': np.nan, 'pfx_x': np.nan,
             'release_spin_rate': np.nan, 'release_pos_x': np.nan, 'release_pos_z': np.nan,
             'release_extension': df['release_extension'].mean(),
-            'delta_run_exp_per_100': (df['delta_run_exp'].sum() / df['pitch_type'].count() * -100),
+            'delta_run_exp_per_100': (df['delta_run_exp'].sum() / df['pitch_type'].count() * 100),
             'whiff_rate': df['whiff'].sum() / df['swing'].sum() if df['swing'].sum() > 0 else 0,
             'in_zone_rate': df['in_zone'].sum() / df['pitch_type'].count(),
             'chase_rate': df['chase'].sum() / df['out_zone'].sum() if df['out_zone'].sum() > 0 else 0,
@@ -72,7 +69,7 @@ class StatcastProcessor:
         return pd.concat([df_group, all_row], ignore_index=True), color_list
 
     @classmethod
-    def filter_matchup_matrix(cls, pitcher_df: pd.DataFrame, batter_id: int) -> pd.DataFrame:
+    def filter_matchup_matrix(this, pitcher_df: pd.DataFrame, batter_id: int) -> pd.DataFrame:
         if pitcher_df.empty or 'batter' not in pitcher_df.columns:
             return pitcher_df
         return pitcher_df[pitcher_df['batter'] == batter_id]

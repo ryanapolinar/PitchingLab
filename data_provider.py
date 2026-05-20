@@ -5,7 +5,7 @@ import streamlit as st
 import numpy as np
 import config
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner="Getting player ID...")
 def lookup_player_id(full_name: str) -> int:
     tokens = full_name.strip().split()
     if len(tokens) < 2:
@@ -19,11 +19,11 @@ def lookup_player_id(full_name: str) -> int:
         raise ValueError(f"No entry tracking key found for: {full_name}")
     return int(player_df.iloc[0]['key_mlbam'])
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner="Fetching pitcher data...")
 def fetch_pitcher_telemetry(pitcher_id: int, season: int) -> pd.DataFrame:
     return pyb.statcast_pitcher(f'{season}-01-01', f'{season}-12-31', pitcher_id)
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner="Fetching pitcher bio...")
 def fetch_biographical_metadata(player_id: int) -> dict:
     url = f"https://statsapi.mlb.com/api/v1/people?personIds={player_id}&hydrate=currentTeam"
     try:
@@ -56,7 +56,7 @@ def _calculate_fip(hr_count: int, bb_count: int, hbp_count: int, k_count: int, i
     return "—"
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner="Fetching player stat summary...")
 def fetch_fangraphs_leaderboard(season: int, pitcher_id: int) -> pd.DataFrame:
     """
     Direct endpoint tracking logic querying the official MLB Stats API for 
@@ -116,47 +116,30 @@ def fetch_statcast_group_averages() -> pd.DataFrame:
     return pd.DataFrame()
 
 @st.cache_data(show_spinner="Fetching league baseline averages from Statcast...")
-def fetch_dynamic_league_averages(year: int) -> pd.DataFrame:
+def fetch_dynamic_league_average_speed_spin(year: int) -> pd.DataFrame:
     """
     Programmatically queries seasonal player arsenals from Baseball Savant 
     and transforms them into a structured DataFrame matching the legacy group layout.
     """
     try:
-        # 1. Fetch player-level average speeds and spin rates
+        # Fetch player-level average speeds and spin rates
         speed_df = pyb.statcast_pitcher_pitch_arsenal(year, arsenal_type='avg_speed')
         spin_df = pyb.statcast_pitcher_pitch_arsenal(year, arsenal_type='avg_spin')
         
-        # 2. Force Pandas to only calculate the mean for NUMERIC columns
+        # Force Pandas to only calculate the mean for NUMERIC columns
         # This completely prevents string concatenation errors on name columns
         avg_speeds = speed_df.select_dtypes(include=['number']).mean()
         avg_spins = spin_df.select_dtypes(include=['number']).mean()
-        
-        # Combine the columns we successfully calculated
-        all_columns = set(avg_speeds.index).union(set(avg_spins.index))
-        records = []
-        
-        # 3. Filter out numeric metadata columns (like pitcher_id or year)
-        # Statcast pitch types are typically 2 letters (e.g., 'ff', 'sl', 'ch')
-        ignore_cols = {'pitcher_id', 'player_id', 'year'}
-        valid_pitches = [col for col in all_columns if col not in ignore_cols and len(str(col)) <= 2]
-        
-        for p in valid_pitches:
-            records.append({
-                'pitch_type': p.upper(), # Map to 'FF', 'SL', etc.
-                'release_speed': avg_speeds.get(p, np.nan),
-                'spin_rate': avg_spins.get(p, np.nan),
-                # Legacy placeholders to ensure visualization logic doesn't break
-                'xwoba': np.nan,
-                'delta_run_exp_per_100': np.nan
-            })
-            
-        return pd.DataFrame(records)
+
+        avg_table = pd.concat([avg_speeds, avg_spins]).drop('pitcher')
+
+        return avg_table
 
     except Exception as e:
         st.warning(f"Could not load live league averages for {year} ({e}). Falling back to empty framework.")
         return pd.DataFrame(columns=['pitch_type', 'release_speed', 'spin_rate', 'xwoba', 'delta_run_exp_per_100'])
     
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner="Fetching logo...")
 def fetch_logo(pitcher_id: int) -> str:
     """
     Fetches the team logo URL for a target pitcher using the MLB Stats API 

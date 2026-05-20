@@ -13,6 +13,7 @@ from config import (
     TABLE_COLUMNS, CMAP_SUM, CMAP_SUM_R, COLOR_STATS_TO_HIGHLIGHT,
     FONT_PROPERTIES, FONT_PROPERTIES_TITLES, FONT_PROPERTIES_AXES
 )
+import math
 
 class PitchVisualizer:
     @staticmethod
@@ -27,7 +28,23 @@ class PitchVisualizer:
         ax.axis('off')
 
     @staticmethod
-    def render_biographical_text(bio_data: dict, season: int, title_text: str, ax: plt.Axes):
+    def render_logo(logo_url, ax: plt.Axes):
+        if logo_url:
+            try:
+                response = requests.get(logo_url, timeout=5)
+                img = Image.open(BytesIO(response.content))
+                
+                ax.set_xlim(0, 1.3)
+                ax.set_ylim(0, 1)
+                ax.imshow(img, extent=[0.15, 1.15, 0, 1], origin='upper')
+            except Exception:
+                ax.text(0.5, 0.5, "Logo\nLoad Error", ha='center', va='center', color='#A0AEC0')
+        else:
+            ax.text(0.5, 0.5, "No Team\nLogo", ha='center', va='center', color='#A0AEC0')
+        ax.axis('off')
+
+    @staticmethod
+    def render_biographical_text(bio_data: dict, ax: plt.Axes):
         name = bio_data.get('fullName', 'Unknown Profile')
         hand = bio_data.get('pitchHand', {}).get('code', 'R')
         age = bio_data.get('currentAge', '--')
@@ -35,12 +52,11 @@ class PitchVisualizer:
         weight = bio_data.get('weight', '--')
 
         ax.text(0.5, 0.95, name, va='top', ha='center', fontsize=22, weight='bold')
-        ax.text(0.5, 0.60, f'{hand}HP, Age: {age}, {height}/{weight}', va='top', ha='center', fontsize=12)
-        ax.text(0.5, 0.30, title_text, va='top', ha='center', fontsize=14, color='#1f77b4', weight='semibold')
+        ax.text(0.5, 0.60, f'{hand}HP\nAge: {age}\nHeight: {height}\nWeight: {weight}', va='top', ha='center', fontsize=12)
         ax.axis('off')
 
     @staticmethod
-    def render_fangraphs_table(pitcher_id: int, df_leaderboard: pd.DataFrame, stats: list, season: int, ax: plt.Axes):
+    def render_fangraphs_table(pitcher_id: int, df_leaderboard: pd.DataFrame, stats: list, ax: plt.Axes):
         """Draws the FanGraphs season summary banner block."""
         if df_leaderboard.empty:
             ax.text(0.5, 0.5, "FanGraphs Baseline Matrix N/A", ha='center', va='center')
@@ -68,66 +84,99 @@ class PitchVisualizer:
         ax.axis('off')
 
     @staticmethod
-    def render_velocity_distributions(df: pd.DataFrame, fig: plt.Figure, gs_spec, df_statcast_group: pd.DataFrame = None):
+    def render_velocity_distributions(df: pd.DataFrame, ax, fig, df_statcast_league_averages: pd.DataFrame = None):
         """Plots vertically aligned pitch distributions sharing a uniform horizontal velocity axis scale."""
-        import math
         counts = df['pitch_type'].value_counts().sort_values(ascending=False)
         pitch_types = counts.index.tolist()
         if not pitch_types: return
+        ax.set_title('Pitch Velocity Distribution', fontdict=FONT_PROPERTIES_TITLES)
 
-        v_min = df['release_speed'].min()
-        v_max = df['release_speed'].max()
-        if pd.isnull(v_min) or pd.isnull(v_max):
-            v_min, v_max = 70, 100
+        # Hide grid lines
+        ax.axis('off')
         
-        xlim_min = math.floor(v_min / 5) * 5
-        xlim_max = math.ceil(v_max / 5) * 5
-        x_ticks = list(range(xlim_min, xlim_max + 5, 5))
 
-        inner_grid = gridspec.GridSpecFromSubplotSpec(len(pitch_types), 1, subplot_spec=gs_spec)
+        # Set up inner grids
+        inner_gs = gridspec.GridSpecFromSubplotSpec(
+            nrows=len(pitch_types), 
+            ncols=1, 
+            subplot_spec=ax.get_subplotspec()
+        )
         
-        for idx, p_type in enumerate(pitch_types):
-            ax_sub = fig.add_subplot(inner_grid[idx])
-            subset = df[df['pitch_type'] == p_type]
-            color = DICT_COLOR.get(p_type, '#808080')
-            
-            if subset['release_speed'].nunique() <= 1:
-                ax_sub.plot([subset['release_speed'].mean(), subset['release_speed'].mean()], [0, 1], linewidth=4, color=color, zorder=20)
+        # Plot each pitch type's velocity histogram
+        ax_number = 0
+        ax_top = []
+        for inner in inner_gs:
+            ax_top.append(fig.add_subplot(inner))
+        for pitch in pitch_types:
+            # Check if all release speeds for the pitch type are the same
+            if np.unique(df[df['pitch_type'] == pitch]['release_speed']).size == 1:
+                # Plot a single line if all values are the same
+                ax_top[ax_number].plot([np.unique(df[df['pitch_type'] == pitch]['release_speed']),
+                                        np.unique(df[df['pitch_type'] == pitch]['release_speed'])], [0, 1], linewidth=4,
+                                    color=DICT_COLOR[df[df['pitch_type'] == pitch]['pitch_type'].values[0]], zorder=20)
             else:
-                sns.kdeplot(subset['release_speed'], ax=ax_sub, fill=True, color=color, alpha=0.4,
-                            clip=(subset['release_speed'].min(), subset['release_speed'].max()))
+                # Plot the KDE for the release speeds
+                sns.kdeplot(df[df['pitch_type'] == pitch]['release_speed'], ax=ax_top[ax_number], fill=True,
+                            clip=(df[df['pitch_type'] == pitch]['release_speed'].min(), df[df['pitch_type'] == pitch]['release_speed'].max()),
+                            color=DICT_COLOR[df[df['pitch_type'] == pitch]['pitch_type'].values[0]])
             
-            p_mean = subset['release_speed'].mean()
-            if pd.notnull(p_mean):
-                ax_sub.axvline(p_mean, color=color, linestyle='--', linewidth=1.5)
-            
-            if df_statcast_group is not None and not df_statcast_group.empty and 'pitch_type' in df_statcast_group.columns:
-                lg_subset = df_statcast_group[df_statcast_group['pitch_type'] == p_type]
-                if not lg_subset.empty and 'release_speed' in lg_subset.columns:
-                    lg_mean = pd.to_numeric(lg_subset['release_speed'], errors='coerce').mean()
-                    if pd.notnull(lg_mean):
-                        ax_sub.axvline(lg_mean, color=color, linestyle=':', linewidth=1.5)
+            # Plot the mean release speed for the current data
+            df_average = df[df['pitch_type'] == pitch]['release_speed']
+            ax_top[ax_number].plot([df_average.mean(), df_average.mean()],
+                                [ax_top[ax_number].get_ylim()[0], ax_top[ax_number].get_ylim()[1]],
+                                color=DICT_COLOR[df[df['pitch_type'] == pitch]['pitch_type'].values[0]],
+                                linestyle='--')
 
-            ax_sub.set_ylabel(p_type, rotation=0, labelpad=20, va='center', weight='bold', fontsize=12)
-            ax_sub.set_xlabel('')
-            ax_sub.set_yticks([])
-            
-            ax_sub.set_xlim(xlim_min, xlim_max)
-            ax_sub.set_xticks(x_ticks)
-            
-            ax_sub.spines['top'].set_visible(False)
-            ax_sub.spines['right'].set_visible(False)
-            ax_sub.spines['left'].set_visible(False)
-            ax_sub.grid(axis='x', linestyle='--', alpha=0.6)
-            
-            if idx == 0:
-                ax_sub.set_title("Pitch Velocity Distribution", fontdict=FONT_PROPERTIES_TITLES)
+            # Plot the mean release speed for the statcast group data (league mean)
+            speed_name = f"{pitch.lower()}_avg_speed"
+            spin_name = f"{pitch.lower()}_avg_spin"
+            league_avg_speed = getattr(df_statcast_league_averages, speed_name, np.nan)
+            # @TODO: use avg_spin somewhere!
+            league_avg_spin  = getattr(df_statcast_league_averages, spin_name, np.nan)
+            ax_top[ax_number].plot([league_avg_speed, league_avg_speed],
+                                [ax_top[ax_number].get_ylim()[0], ax_top[ax_number].get_ylim()[1]],
+                                color=DICT_COLOR[df[df['pitch_type'] == pitch]['pitch_type'].values[0]],
+                                linestyle=':')
 
-            if idx < len(pitch_types) - 1:
-                ax_sub.tick_params(axis='x', labelcolor='none', colors='none')
-                ax_sub.spines['bottom'].set_visible(False)
-                
-        ax_sub.set_xlabel('Velocity (mph)', fontdict=FONT_PROPERTIES_AXES)
+            # Set the x-axis limits
+            ax_top[ax_number].set_xlim(math.floor(df['release_speed'].min() / 5) * 5, math.ceil(df['release_speed'].max() / 5) * 5)
+            ax_top[ax_number].set_xlabel('')
+            ax_top[ax_number].set_ylabel('')
+
+            # Hide the top, right, and left spines for all but the last subplot
+            if ax_number < len(pitch_types) - 1:
+                ax_top[ax_number].spines['top'].set_visible(False)
+                ax_top[ax_number].spines['right'].set_visible(False)
+                ax_top[ax_number].spines['left'].set_visible(False)
+                ax_top[ax_number].tick_params(axis='x', colors='none')
+
+            # Set the x-ticks and y-ticks
+            ax_top[ax_number].set_xticks(range(math.floor(df['release_speed'].min() / 5) * 5, math.ceil(df['release_speed'].max() / 5) * 5, 5))
+            ax_top[ax_number].set_yticks([])
+            ax_top[ax_number].grid(axis='x', linestyle='--')
+
+            # Add text label for the pitch type
+            ax_top[ax_number].text(-0.01, 0.5, pitch, transform=ax_top[ax_number].transAxes,
+                                fontsize=14, va='center', ha='right')
+            
+            # Make background white 
+            #ax_top[ax_number].set_facecolor('none')
+            #fig.patch.set_facecolor('none')
+
+            # Trim width by -5% to avoid overlap
+            pos_1 = ax_top[ax_number].get_position()
+            ax_top[ax_number].set_position([pos_1.x0, pos_1.y0, pos_1.width * 0.90, pos_1.height])
+
+            # Increment
+            ax_number += 1
+        # Hide the top, right, and left spines for the last subplot
+        ax_top[-1].spines['top'].set_visible(False)
+        ax_top[-1].spines['right'].set_visible(False)
+        ax_top[-1].spines['left'].set_visible(False)
+
+        # Set the x-ticks and x-label for the last subplot
+        ax_top[-1].set_xticks(list(range(math.floor(df['release_speed'].min() / 5) * 5, math.ceil(df['release_speed'].max() / 5) * 5, 5)))
+        ax_top[-1].set_xlabel('Velocity (mph)')
 
     @staticmethod
     def render_rolling_pitch_usage(df: pd.DataFrame, ax: plt.Axes, window: int = 5):
@@ -295,7 +344,7 @@ class PitchVisualizer:
         ax.legend(loc='upper right', fontsize=8, framealpha=0.9, facecolor='#FFFFFF', edgecolor='#E2E8F0')
 
     @staticmethod
-    def render_pitch_metrics_table(df_group: pd.DataFrame, df_statcast_group: pd.DataFrame, color_list: list, ax: plt.Axes):
+    def render_pitch_metrics_table(df_group: pd.DataFrame, df_statcast_league_averages: pd.DataFrame, color_list: list, ax: plt.Axes):
         """Restores the detailed stats spreadsheet with conditional cell shading relative to league averages."""
         if df_group.empty:
             ax.axis('off')
@@ -309,15 +358,23 @@ class PitchVisualizer:
         cell_colors = []
         for _, row in df_group.iterrows():
             row_colors = []
-            pt = row['pitch_type']
+            pitch = row['pitch_type']
             
-            if df_statcast_group is not None and not df_statcast_group.empty and 'pitch_type' in df_statcast_group.columns:
-                select_df = df_statcast_group[df_statcast_group['pitch_type'] == pt]
+            speed_name = f"{pitch.lower()}_avg_speed"
+            spin_name = f"{pitch.lower()}_avg_spin"
+            league_avg_speed = getattr(df_statcast_league_averages, speed_name, np.nan)
+            # @TODO: use avg_spin somewhere!
+            league_avg_spin  = getattr(df_statcast_league_averages, spin_name, np.nan)
+            
+            '''
+            if df_statcast_league_averages is not None and not df_statcast_league_averages.empty and 'pitch_type' in df_statcast_league_averages.columns:
+                select_df = df_statcast_league_averages[df_statcast_league_averages['pitch_type'] == pitch]
             else:
                 select_df = pd.DataFrame()
-                
+            ''' 
             for col in TABLE_COLUMNS:
                 if col in COLOR_STATS_TO_HIGHLIGHT and isinstance(row[col], (int, float)) and not np.isnan(row[col]):
+                    '''
                     if not select_df.empty and col in select_df.columns:
                         b_mean = pd.to_numeric(select_df[col], errors='coerce').mean()
                     else:
@@ -338,7 +395,8 @@ class PitchVisualizer:
                     else:
                         norm = mcolors.Normalize(vmin=b_mean * 0.7, vmax=b_mean * 1.3)
                         c = CMAP_SUM(norm(row[col]))
-                    row_colors.append(mcolors.to_hex(c))
+                    '''
+                    row_colors.append(mcolors.to_hex('#ffffff'))#c))
                 else:
                     row_colors.append('#ffffff')
             cell_colors.append(row_colors)

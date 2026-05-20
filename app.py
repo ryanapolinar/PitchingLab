@@ -1,20 +1,22 @@
 import streamlit as st
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import matplotlib.gridspec as gridspec
 import pandas as pd
 import altair as alt
 import numpy as np
-from config import init_plotting_theme, DICT_PITCH, DICT_COLOR
+from config import init_plotting_theme, DICT_PITCH, DICT_COLOR, FANGRAPHS_STATS, TABLE_COLUMNS
 from data_provider import (
     lookup_player_id, fetch_pitcher_telemetry, 
     fetch_biographical_metadata, fetch_fangraphs_leaderboard,
-    fetch_dynamic_league_averages, fetch_logo
+    fetch_dynamic_league_average_speed_spin, fetch_logo
 )
 from processor import StatcastProcessor
 from visualizer import PitchVisualizer
+import image_plotter
 
 # Enforce wide mode dashboard frame space layout optimization natively
-st.set_page_config(page_title="Pitching Lab Engine", layout="wide")
+st.set_page_config(page_title="Pitching Lab by Ryan Apolinar", layout="wide")
 init_plotting_theme()
 
 st.title("🔬 Pitching Lab")
@@ -28,6 +30,17 @@ pitcher_name = st.sidebar.text_input("Target Pitcher Name", value="Mason Miller"
 season_year = st.sidebar.number_input("Target Season Year", min_value=2021, max_value=2026, value=2026)
 
 # ==============================================================================
+# CORE FIELDS
+# ==============================================================================
+
+pitcher_id = None
+df_raw = None
+bio_meta = None
+df_fg_leaderboard = None
+df_statcast_league_averages = None
+logo_url = None
+
+# ==============================================================================
 # CORE DATA PROCESSING PIPELINE
 # ==============================================================================
 try:
@@ -35,7 +48,7 @@ try:
     df_raw = fetch_pitcher_telemetry(pitcher_id, season_year)
     bio_meta = fetch_biographical_metadata(pitcher_id)
     df_fg_leaderboard = fetch_fangraphs_leaderboard(season_year, pitcher_id)
-    df_statcast_group = fetch_dynamic_league_averages(year=season_year)
+    df_statcast_league_averages = fetch_dynamic_league_average_speed_spin(year=season_year)
     logo_url = fetch_logo(pitcher_id)
 
     if df_raw.empty:
@@ -68,30 +81,14 @@ with st.container():
     
     with col_bio:
         fig_bio, ax_bio = plt.subplots(figsize=(6, 2))
-        PitchVisualizer.render_biographical_text(bio_meta, season_year, "", ax_bio)
+        PitchVisualizer.render_biographical_text(bio_meta, ax_bio)
         st.pyplot(fig_bio)
         
     with col_logo:
         # Create an identical 2x2 bounding canvas for symmetric scaling
         fig_logo, ax_logo = plt.subplots(figsize=(2, 2))
         ax_logo.axis('off')
-        
-        if logo_url:
-            try:
-                import requests
-                from PIL import Image
-                from io import BytesIO
-                
-                response = requests.get(logo_url, timeout=5)
-                img = Image.open(BytesIO(response.content))
-                
-                ax_logo.set_xlim(0, 1.3)
-                ax_logo.set_ylim(0, 1)
-                ax_logo.imshow(img, extent=[0.15, 1.15, 0, 1], origin='upper')
-            except Exception:
-                ax_logo.text(0.5, 0.5, "Logo\nLoad Error", ha='center', va='center', color='#A0AEC0')
-        else:
-            ax_logo.text(0.5, 0.5, "No Team\nLogo", ha='center', va='center', color='#A0AEC0')
+        PitchVisualizer.render_logo(logo_url, ax_logo)
             
         st.pyplot(fig_logo)
 
@@ -206,18 +203,7 @@ with col_graph_canvas:
 
     interactive_distribution = base_density.mark_area(filled=True, stroke='#FFFFFF', strokeWidth=1)
 
-    if df_statcast_group is not None and not df_statcast_group.empty:
-        df_base_filtered = df_statcast_group[df_statcast_group['pitch_type'].isin(pitch_order)].copy()
-        df_base_filtered['release_speed'] = pd.to_numeric(df_base_filtered['release_speed'], errors='coerce')
-        
-        if not df_base_filtered.empty:
-            baseline_rules = alt.Chart(df_base_filtered).mark_rule(stroke='#4A5568', strokeDash=[4, 4], strokeWidth=1.5).encode(
-                x='release_speed:Q',
-                row=alt.Row('pitch_type:N', sort=pitch_order)
-            ).properties(width='container')
-            interactive_distribution = alt.layer(interactive_distribution, baseline_rules).resolve_scale(x='shared')
-            
-    st.altair_chart(interactive_distribution.configure_view(strokeWidth=0), use_container_width=True)
+    st.altair_chart(interactive_distribution.configure_view(strokeWidth=0), width='stretch')
 
     st.markdown("---")
 
@@ -295,7 +281,7 @@ with col_graph_canvas:
     # MOVEMENT BREAK SCATTER PLOT (STRICT 1:1 MATPLOTLIB BOUNDS)
     # --------------------------------------------------------------------------
     st.markdown("### 🎯 Pitch Movement Scatter Plot")
-    st.caption("Tracks Induced Vertical Break (iVB) and Horizontal Break. We use iVB to track movement based on the spin of the ball, and not gravity. Horizontal break is adjusted to glove side and arm side based on the pitcher's handedness.")
+    st.caption("Tracks Induced Vertical Break (iVB) and Horizontal Break. We use iVB to track vertical movement based on the spin of the ball, and not gravity. Horizontal break is adjusted to glove side and arm side based on the pitcher's handedness.")
 
     # 1. Allocate a dedicated square bounding canvas frame seed
     fig_break, ax_break = plt.subplots(figsize=(5, 5))
@@ -307,7 +293,7 @@ with col_graph_canvas:
     st.pyplot(fig_break, width='content')
 
 # ==============================================================================
-# STATCAST ARSENAL METRICS SUMMARY GRID (STAYS UNCONSTRAINED FULL-WIDTH Below)
+# STATCAST ARSENAL METRICS SUMMARY GRID
 # ==============================================================================
 st.markdown("---")
 st.subheader("📊 Statcast Arsenal Performance Summary")
@@ -327,10 +313,13 @@ if df_group is not None and not df_group.empty:
         'chase_rate': 'Chase %',
         'whiff_rate': 'Whiff %',
         'xwoba': 'xwOBA',
-        'delta_run_exp_per_100': 'RV/100'
+        'delta_run_exp_per_100': 'RV/100',
+        'release_pos_x': 'hRel',
+        'release_pos_z': 'vRel',
+        'release_extension': 'Ext.'
     }
     
-    df_display = df_group[list(display_columns.keys())].rename(columns=display_columns)
+    df_display = df_group[TABLE_COLUMNS].rename(columns=display_columns)
     
     formatted_grid = df_display.style.format({
         'Count': "{:,}",
@@ -378,3 +367,83 @@ if df_group is not None and not df_group.empty:
     )
 else:
     st.warning("Telemetry data groups are currently empty or missing.")
+
+# ==============================================================================
+# COMPOSITE PRINT-READY CANVAS GENERATION (REPLACES PLT.SHOW)
+# ==============================================================================
+st.markdown("---")
+st.subheader("📋 Pitcher Report Card")
+st.caption("All the information above consolidated into one image. Right-click or tap and hold to save it for later!")
+
+# Instantiate the full-scale canvas figure
+fig = plt.figure(figsize=(20, 20))
+
+# GridSpec configuration mapping: 6 rows, 8 columns
+gs = gridspec.GridSpec(
+    6, 
+    8,
+    height_ratios=[2, 20, 9, 36, 36, 7],
+    width_ratios=[1, 18, 18, 18, 18, 18, 18, 1]
+)
+
+# Define the precise spatial layout subplots
+ax_headshot = fig.add_subplot(gs[1, 1:3])
+ax_bio      = fig.add_subplot(gs[1, 3:5])
+ax_logo     = fig.add_subplot(gs[1, 5:7])
+
+ax_season_table = fig.add_subplot(gs[2, 1:7])
+
+# Note: Velocity distributions handle their own internal sub-gridspec inside the gs slot
+ax_plot_1 = fig.add_subplot(gs[3, 1:3])
+ax_plot_2 = fig.add_subplot(gs[3, 3:5])
+ax_plot_3 = fig.add_subplot(gs[3, 5:7])
+
+ax_plot_1.grid(False)
+ax_plot_2.grid(False)
+ax_plot_3.grid(False)
+
+ax_table = fig.add_subplot(gs[4, 1:7])
+pos_table = ax_table.get_position()
+new_height = pos_table.height * 0.9
+
+# Re-apply the modified coordinates safely
+# This leaves the 'left' and 'width' completely unchanged, creates a vertical 
+# buffer space above the table headers, and pushes it away from Row 3 graphs.
+ax_table.set_position([pos_table.x0, pos_table.y0, pos_table.width, new_height])
+
+# Border channels allocated for headers, footers, and crisp margins
+ax_header = fig.add_subplot(gs[0, 1:7])
+ax_footer = fig.add_subplot(gs[-1, 1:7])
+ax_left   = fig.add_subplot(gs[:, 0])
+ax_right  = fig.add_subplot(gs[:, -1])
+
+# Strip out structural axes lines from peripheral text wrappers
+ax_header.axis('off')
+ax_footer.axis('off')
+ax_left.axis('off')
+ax_right.axis('off')
+
+# Render Top Row Core Biographical Components
+PitchVisualizer.render_headshot(pitcher_id, ax_headshot)
+PitchVisualizer.render_biographical_text(bio_meta, ax_bio)
+PitchVisualizer.render_logo(logo_url, ax_logo)
+
+# Render Row 2: Seasonal Summary Base Metrics Banner
+image_plotter.plot_fangraphs_table(df_fg_leaderboard, ax_season_table)
+
+# Render Row 3: Visual Tracking Subplots 
+# Pass the raw GridSpec slice directly to velocity tracking to let it manage stacked KDE layout layers cleanly
+# Avoid passing an initialized ax object to avoid axis collisions
+PitchVisualizer.render_velocity_distributions(df_processed, ax_plot_1, fig, df_statcast_league_averages)
+PitchVisualizer.render_rolling_pitch_usage(df_processed, ax_plot_2, window=5)
+PitchVisualizer.render_break_plot(df_processed, ax_plot_3, bio_meta)
+
+# Render Row 4: Polished Color-Coded Statcast Spreadsheet Layout Matrix
+PitchVisualizer.render_pitch_metrics_table(df_group, df_statcast_league_averages, pitch_colors_list, ax_table)
+
+# Populate Metadata Canvas Guidelines inside the structural Footer Axis
+ax_footer.text(0.0, 1.0, "Template By: @TJStats\nApp Implementation By: Ryan Apolinar", ha="left", va="top", fontsize=12, color="#4A5568")
+ax_footer.text(1.0, 1.0, "Data Sources: MLB Statcast & FanGraphs", ha="right", va="top", fontsize=12, color="#4A5568")
+
+# Execute direct rendering into Streamlit container
+st.pyplot(fig, width='content')
