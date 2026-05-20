@@ -23,11 +23,23 @@ st.title("🔬 Pitching Lab")
 st.caption("Enter a pitcher's first and last name in the side bar to get a quick analytics summary of their performance.")
 
 # ==============================================================================
-# SIDEBAR CONFIGURATION MATRIX
+# SIDEBAR CONFIGURATION
 # ==============================================================================
-st.sidebar.header("Control Filter Matrices")
-pitcher_name = st.sidebar.text_input("Target Pitcher Name", value="Mason Miller")
-season_year = st.sidebar.number_input("Target Season Year", min_value=2021, max_value=2026, value=2026)
+st.sidebar.header("Pitcher Inputs")
+pitcher_name = st.sidebar.text_input("Pitcher Name", value="Mason Miller")
+season_year = st.sidebar.number_input("Season Year", min_value=2021, max_value=2026, value=2026)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("📍 Table of Contents")
+st.sidebar.markdown("""
+<div style="line-height: 2.0;">
+    <a href="#bio-header" style="text-decoration: none; color: #3182ce; font-weight: bold;">Biography</a><br>
+    <a href="#seasonal-performance-metrics" style="text-decoration: none; color: #3182ce; font-weight: bold;">Seasonal Performance Metrics</a><br>
+    <a href="#interactive-pitch-analytics" style="text-decoration: none; color: #3182ce; font-weight: bold;">Interactive Pitch Analytics</a><br>
+    <a href="#arsenal-data" style="text-decoration: none; color: #3182ce; font-weight: bold;">Statcast Table</a><br>
+    <a href="#Pitcher Report" style="text-decoration: none; color: #3182ce; font-weight: bold;">Pitcher Report</a><br>
+</div>
+""", unsafe_allow_html=True)
 
 # ==============================================================================
 # CORE FIELDS
@@ -41,38 +53,16 @@ df_statcast_league_averages = None
 logo_url = None
 
 # ==============================================================================
-# CORE DATA PROCESSING PIPELINE
-# ==============================================================================
-try:
-    pitcher_id = lookup_player_id(pitcher_name)
-    df_raw = fetch_pitcher_telemetry(pitcher_id, season_year)
-    bio_meta = fetch_biographical_metadata(pitcher_id)
-    df_fg_leaderboard = fetch_fangraphs_leaderboard(season_year, pitcher_id)
-    df_statcast_league_averages = fetch_dynamic_league_average_speed_spin(year=season_year)
-    logo_url = fetch_logo(pitcher_id)
-
-    if df_raw.empty:
-        st.error(f"No tracking metrics returned matching input configurations.")
-        st.stop()
-
-    df_processed = StatcastProcessor.clean_and_augment(df_raw)
-
-    if df_processed.empty:
-        st.warning("No tracking instances found matching specified parameter matrix dimensions.")
-        st.stop()
-
-    df_group, pitch_colors_list = StatcastProcessor.aggregate_pitch_metrics(df_processed)
-
-except Exception as exc:
-    st.error(f"Core Pipeline Engine Fault: {str(exc)}")
-    st.stop()
-
-
-# ==============================================================================
-# TOP BANNER: HEADSHOT, BIOGRAPHICAL CARD, & FANGRAPHS METRICS GRID
+# TOP BANNER: HEADSHOT, BIOGRAPHY, AND TEAM
 # ==============================================================================
 with st.container():
+    st.markdown("<span id='bio-header'></span>", unsafe_allow_html=True)
     col_img, col_bio, col_logo = st.columns([1.2, 3.5, 1.2])
+
+    pitcher_id = lookup_player_id(pitcher_name)
+    
+    bio_meta = fetch_biographical_metadata(pitcher_id)
+    logo_url = fetch_logo(pitcher_id)
     
     with col_img:
         fig_headshot, ax_headshot = plt.subplots(figsize=(2, 2))
@@ -93,61 +83,55 @@ with st.container():
         st.pyplot(fig_logo)
 
 # ==============================================================================
-# FANGRAPHS METRICS GRID (DIRECT RENDER OVER PRE-MAPPED SUMMARY ROW)
+# SEASONAL PERFORMANCE METRICS
 # ==============================================================================
 st.markdown("### Seasonal Performance Metrics")
+st.markdown("<span id='seasonal-performance-metrics'></span>", unsafe_allow_html=True)
 
-if df_fg_leaderboard is not None and not df_fg_leaderboard.empty:
-    # Pull the first row since it's already mapped and isolated for this pitcher
-    player_row = df_fg_leaderboard.iloc[0]
-    
-    # Create the horizontal metric track columns matching your exact dataset columns
-    fg_cols = st.columns(len(player_row.index))
-    
-    for i, col_name in enumerate(player_row.index):
-        val = player_row[col_name]
+with st.container():
+    df_fg_leaderboard = fetch_fangraphs_leaderboard(season_year, pitcher_id)
+    if df_fg_leaderboard is not None and not df_fg_leaderboard.empty:
+        # Pull the first row since it's already mapped and isolated for this pitcher
+        player_row = df_fg_leaderboard.iloc[0]
         
-        # Handle empty/missing values gracefully
-        if pd.isnull(val) or val == '—' or val == '':
-            display_val = "—"
-        else:
-            try:
-                numeric_val = float(val)
-                # Auto-append '%' symbol if the header contains percent markers
-                if '%' in str(col_name):
-                    if abs(numeric_val) < 1.0 and numeric_val != 0.0:
-                        display_val = f"{numeric_val * 100:.1f}%"
+        # Create the horizontal metric track columns matching your exact dataset columns
+        fg_cols = st.columns(len(player_row.index))
+        
+        for i, col_name in enumerate(player_row.index):
+            val = player_row[col_name]
+            
+            # Handle empty/missing values gracefully
+            if pd.isnull(val) or val == '—' or val == '':
+                display_val = "—"
+            else:
+                try:
+                    numeric_val = float(val)
+                    # Auto-append '%' symbol if the header contains percent markers
+                    if '%' in str(col_name):
+                        if abs(numeric_val) < 1.0 and numeric_val != 0.0:
+                            display_val = f"{numeric_val * 100:.1f}%"
+                        else:
+                            display_val = f"{numeric_val:.1f}%"
+                    elif str(col_name).upper() in ['ERA', 'FIP', 'WHIP']:
+                        display_val = f"{numeric_val:.2f}"
+                    elif str(col_name).upper() in ['IP', 'TBF']:
+                        display_val = f"{numeric_val:,.1f}" if str(col_name).upper() == 'IP' else f"{numeric_val:,.0f}"
                     else:
-                        display_val = f"{numeric_val:.1f}%"
-                elif str(col_name).upper() in ['ERA', 'FIP', 'WHIP']:
-                    display_val = f"{numeric_val:.2f}"
-                elif str(col_name).upper() in ['IP', 'TBF']:
-                    display_val = f"{numeric_val:,.1f}" if str(col_name).upper() == 'IP' else f"{numeric_val:,.0f}"
-                else:
-                    display_val = f"{numeric_val:.1f}"
-            except (ValueError, TypeError):
-                display_val = str(val)
-                
-        fg_cols[i].metric(label=str(col_name), value=display_val)
-else:
-    st.caption("⚠️ FanGraphs data-store tracking records currently unavailable.")
+                        display_val = f"{numeric_val:.1f}"
+                except (ValueError, TypeError):
+                    display_val = str(val)
+                    
+            fg_cols[i].metric(label=str(col_name), value=display_val)
+    else:
+        st.caption("⚠️ FanGraphs data-store tracking records currently unavailable.")
 
 st.markdown("---")
 
 # ==============================================================================
-# MAIN AREA: CLEAN VERTICAL STREAMLINED LAYOUT 
+# MAIN AREA: INTERACTIVE PITCH ANALYTICS
 # ==============================================================================
 st.subheader("Interactive Pitch Analytics")
-
-# Data preparation
-df_chart_base = df_processed.copy()
-df_chart_base['release_speed'] = pd.to_numeric(df_chart_base['release_speed'], errors='coerce')
-df_chart_base['pitch_type'] = df_chart_base['pitch_type'].astype(str).str.upper().str.strip()
-df_chart_base = df_chart_base.dropna(subset=['release_speed'])
-
-pitch_order = df_chart_base['pitch_type'].value_counts().index.tolist()
-active_colors = {p: DICT_COLOR[p] for p in pitch_order if p in DICT_COLOR}
-
+st.markdown("<span id='interactive-pitch-analytics'></span>", unsafe_allow_html=True)
 
 # 🌟 NEW LAYOUT MATRIX: 25% Left Space | 50% Center Graphs | 25% Right Space
 # This limits desktop chart width to 50% while maintaining mobile vertical responsiveness.
@@ -160,12 +144,35 @@ for k, v in DICT_PITCH.items():
 js_legend_mapping += "datum.label"
 
 with col_graph_canvas:
+    # Data preparation
+    df_raw = fetch_pitcher_telemetry(pitcher_id, season_year)
+    if df_raw.empty:
+        st.error(f"No tracking metrics returned matching input configurations.")
+        st.stop()
+    df_processed = StatcastProcessor.clean_and_augment(df_raw)
+    if df_processed.empty:
+        st.warning("No tracking instances found matching specified parameter matrix dimensions.")
+        st.stop()
+    df_group, pitch_colors_list = StatcastProcessor.aggregate_pitch_metrics(df_processed)
+    df_chart_base = df_processed.copy()
+    df_chart_base['release_speed'] = pd.to_numeric(df_chart_base['release_speed'], errors='coerce')
+    df_chart_base['pitch_type'] = df_chart_base['pitch_type'].astype(str).str.upper().str.strip()
+    df_chart_base = df_chart_base.dropna(subset=['release_speed'])
+
+    pitch_order = df_chart_base['pitch_type'].value_counts().index.tolist()
+    active_colors = {p: DICT_COLOR[p] for p in pitch_order if p in DICT_COLOR}
+
+    # Fetch league averages
+    df_statcast_league_averages = fetch_dynamic_league_average_speed_spin(year=season_year)
 
     # --------------------------------------------------------------------------
     # VELOCITY DISTRIBUTIONS (50% DESKTOP WIDTH / 100% MOBILE WIDTH)
     # --------------------------------------------------------------------------
     st.markdown("### ⚡ Velocity Distribution Grid")
     st.caption("Visualizes velocity of each pitch type, categorized by the pitch thrown.")
+
+    
+
 
     v_selection = alt.selection_point(fields=['pitch_type'], bind='legend')
 
@@ -208,7 +215,7 @@ with col_graph_canvas:
     st.markdown("---")
 
     # --------------------------------------------------------------------------
-    # ROLLING USAGE TIMELINE (EXPANDED STRETCH FOR READABILITY)
+    # ROLLING USAGE TIMELINE
     # --------------------------------------------------------------------------
     st.markdown("### 📈 5-Game Rolling Pitch Usage Trend")
     st.caption("Traces evolution of pitch selection mixes over time.")
@@ -278,7 +285,7 @@ with col_graph_canvas:
     st.markdown("---")
 
     # --------------------------------------------------------------------------
-    # MOVEMENT BREAK SCATTER PLOT (STRICT 1:1 MATPLOTLIB BOUNDS)
+    # MOVEMENT BREAK SCATTER PLOT
     # --------------------------------------------------------------------------
     st.markdown("### 🎯 Pitch Movement Scatter Plot")
     st.caption("Tracks Induced Vertical Break (iVB) and Horizontal Break. We use iVB to track vertical movement based on the spin of the ball, and not gravity. Horizontal break is adjusted to glove side and arm side based on the pitcher's handedness.")
@@ -296,154 +303,159 @@ with col_graph_canvas:
 # STATCAST ARSENAL METRICS SUMMARY GRID
 # ==============================================================================
 st.markdown("---")
-st.subheader("📊 Statcast Arsenal Performance Summary")
+st.subheader("📊 Arsenal Data")
 st.caption("Comprehensive pitch metrics aggregated by pitch type. Highlighted cells indicate better performance for a given pitch.")
+st.markdown("<span id='arsenal-data'></span>", unsafe_allow_html=True)
 
-if df_group is not None and not df_group.empty:
-    display_columns = {
-        'pitch_description': 'Pitch Name',
-        'pitch_type': 'Abbreviation',
-        'pitch': 'Count',
-        'pitch_usage': 'Usage',
-        'release_speed': 'Velocity',
-        'release_spin_rate': 'Spin (rpm)',
-        'pfx_z': 'iVB (in)',
-        'pfx_x': 'HB (in)',
-        'in_zone_rate': 'Zone %',
-        'chase_rate': 'Chase %',
-        'whiff_rate': 'Whiff %',
-        'xwoba': 'xwOBA',
-        'delta_run_exp_per_100': 'RV/100',
-        'release_pos_x': 'hRel',
-        'release_pos_z': 'vRel',
-        'release_extension': 'Ext.'
-    }
-    
-    df_display = df_group[TABLE_COLUMNS].rename(columns=display_columns)
-    
-    formatted_grid = df_display.style.format({
-        'Count': "{:,}",
-        'Usage': "{:.1%}",
-        'Velocity': lambda x: f"{x:.1f} mph" if pd.notnull(x) else "—",
-        'Spin (rpm)': lambda x: f"{x:,.0f}" if pd.notnull(x) else "—",
-        'iVB (in)': lambda x: f"{x:+.1f}" if pd.notnull(x) else "—",
-        'HB (in)': lambda x: f"{x:+.1f}" if pd.notnull(x) else "—",
-        'Zone %': "{:.1%}",
-        'Chase %': "{:.1%}",
-        'Whiff %': "{:.1%}",
-        'xwOBA': lambda x: f".{int(x*1000):03d}" if pd.notnull(x) else "—",
-        'RV/100': lambda x: f"{x:+.2f}" if pd.notnull(x) else "—"
-    })
-    
-    yellow_cmap = mcolors.LinearSegmentedColormap.from_list("scout_yellow", ["#FFFFFF", "#FACC15"])
-    yellow_cmap_r = yellow_cmap.reversed()
-    formatted_grid = formatted_grid.background_gradient(cmap=yellow_cmap, subset=['Whiff %', 'Chase %',])
-    formatted_grid = formatted_grid.background_gradient(cmap=yellow_cmap_r, subset=['xwOBA'])
-    formatted_grid = formatted_grid.background_gradient(cmap=yellow_cmap_r, subset=['RV/100'])
-    
-    # Keeping table full-width as it contains 13 dense data attributes
-    st.dataframe(
-        formatted_grid,
-        use_container_width=True,
-        hide_index=True
-    )
-    
-    # --------------------------------------------------------------------------
-    # FOOTER ANALYTICAL GUIDE (COMPREHENSIVE METRIC BREAKDOWN)
-    # --------------------------------------------------------------------------
-    st.info(
-        "🔬 **Analytical Guide & Metric Glossary:**\n\n"
-        "* **Pitch Name & Abbreviation:** The tracking class configuration (e.g., FF = Four-Seam Fastball, SL = Slider) mapped directly from telemetry tags.\n"
-        "* **Count & Usage:** Total pitch volume tracked for the specified timeline and its relative percentage share of the pitcher's total arsenal mix.\n"
-        "* **Velocity:** Average release speed measured in miles per hour (mph) at the out-of-hand release point.\n"
-        "* **Spin (rpm):** Average raw revolutions per minute measured immediately after release.\n"
-        "* **iVB (Induced Vertical Break):** The vertical movement of the pitch relative to a spinless baseline, measured in inches. Positive values indicate 'ride' or 'rise' (defying gravity), while negative values signify heavy sink or drop.\n"
-        "* **HB (Horizontal Break):** The horizontal movement of the pitch relative to a spinless baseline, measured in inches. Positive values track movement toward the pitcher's arm-side, while negative values track glove-side break.\n"
-        "* **Zone %:** The percentage of pitches that passed through the boundaries of the rulebook strike zone.\n"
-        "* **Chase %:** The percentage of pitches thrown *outside* the strike zone that the batter swung at.\n"
-        "* **Whiff %:** The percentage of total swings where the batter missed the ball completely (Whiffs / Total Swings). A primary metric for isolating pure put-away stuff.\n"
-        "* **xwOBA (Expected Weighted On-Base Average):** A premium Statcast quality-of-contact metric that formulates what the opponent's wOBA *should* be based strictly on exit velocity and launch angle, stripping out defensive luck. Lower numbers favor the pitcher.\n"
-        "* **RV/100 (Run Value per 100 Pitches):** The net run expectancy impact generated by the pitch, scaled per 100 throws. **Negative values favor the pitcher** (suppressing runs), while positive values favor the batter (generating offense)."
-    )
-else:
-    st.warning("Telemetry data groups are currently empty or missing.")
+
+with st.container():
+    if df_group is not None and not df_group.empty:
+        display_columns = {
+            'pitch_description': 'Pitch Name',
+            'pitch_type': 'Abbreviation',
+            'pitch': 'Count',
+            'pitch_usage': 'Usage',
+            'release_speed': 'Velocity',
+            'release_spin_rate': 'Spin (rpm)',
+            'pfx_z': 'iVB (in)',
+            'pfx_x': 'HB (in)',
+            'in_zone_rate': 'Zone %',
+            'chase_rate': 'Chase %',
+            'whiff_rate': 'Whiff %',
+            'xwoba': 'xwOBA',
+            'delta_run_exp_per_100': 'RV/100',
+            'release_pos_x': 'hRel',
+            'release_pos_z': 'vRel',
+            'release_extension': 'Ext.'
+        }
+        
+        df_display = df_group[TABLE_COLUMNS].rename(columns=display_columns)
+        
+        formatted_grid = df_display.style.format({
+            'Count': "{:,}",
+            'Usage': "{:.1%}",
+            'Velocity': lambda x: f"{x:.1f} mph" if pd.notnull(x) else "—",
+            'Spin (rpm)': lambda x: f"{x:,.0f}" if pd.notnull(x) else "—",
+            'iVB (in)': lambda x: f"{x:+.1f}" if pd.notnull(x) else "—",
+            'HB (in)': lambda x: f"{x:+.1f}" if pd.notnull(x) else "—",
+            'Zone %': "{:.1%}",
+            'Chase %': "{:.1%}",
+            'Whiff %': "{:.1%}",
+            'xwOBA': lambda x: f".{int(x*1000):03d}" if pd.notnull(x) else "—",
+            'RV/100': lambda x: f"{x:+.2f}" if pd.notnull(x) else "—"
+        })
+        
+        yellow_cmap = mcolors.LinearSegmentedColormap.from_list("scout_yellow", ["#FFFFFF", "#FACC15"])
+        yellow_cmap_r = yellow_cmap.reversed()
+        formatted_grid = formatted_grid.background_gradient(cmap=yellow_cmap, subset=['Whiff %', 'Chase %',])
+        formatted_grid = formatted_grid.background_gradient(cmap=yellow_cmap_r, subset=['xwOBA'])
+        formatted_grid = formatted_grid.background_gradient(cmap=yellow_cmap_r, subset=['RV/100'])
+        
+        # Keeping table full-width as it contains 13 dense data attributes
+        st.dataframe(
+            formatted_grid,
+            use_container_width=True,
+            hide_index=True
+        )
+        
+        # --------------------------------------------------------------------------
+        # FOOTER ANALYTICAL GUIDE (COMPREHENSIVE METRIC BREAKDOWN)
+        # --------------------------------------------------------------------------
+        st.info(
+            "🔬 **Analytical Guide & Metric Glossary:**\n\n"
+            "* **Pitch Name & Abbreviation:** The tracking class configuration (e.g., FF = Four-Seam Fastball, SL = Slider) mapped directly from telemetry tags.\n"
+            "* **Count & Usage:** Total pitch volume tracked for the specified timeline and its relative percentage share of the pitcher's total arsenal mix.\n"
+            "* **Velocity:** Average release speed measured in miles per hour (mph) at the out-of-hand release point.\n"
+            "* **Spin (rpm):** Average raw revolutions per minute measured immediately after release.\n"
+            "* **iVB (Induced Vertical Break):** The vertical movement of the pitch relative to a spinless baseline, measured in inches. Positive values indicate 'ride' or 'rise' (defying gravity), while negative values signify heavy sink or drop.\n"
+            "* **HB (Horizontal Break):** The horizontal movement of the pitch relative to a spinless baseline, measured in inches. Positive values track movement toward the pitcher's arm-side, while negative values track glove-side break.\n"
+            "* **Zone %:** The percentage of pitches that passed through the boundaries of the rulebook strike zone.\n"
+            "* **Chase %:** The percentage of pitches thrown *outside* the strike zone that the batter swung at.\n"
+            "* **Whiff %:** The percentage of total swings where the batter missed the ball completely (Whiffs / Total Swings). A primary metric for isolating pure put-away stuff.\n"
+            "* **xwOBA (Expected Weighted On-Base Average):** A premium Statcast quality-of-contact metric that formulates what the opponent's wOBA *should* be based strictly on exit velocity and launch angle, stripping out defensive luck. Lower numbers favor the pitcher.\n"
+            "* **RV/100 (Run Value per 100 Pitches):** The net run expectancy impact generated by the pitch, scaled per 100 throws. **Negative values favor the pitcher** (suppressing runs), while positive values favor the batter (generating offense)."
+        )
+    else:
+        st.warning("Telemetry data groups are currently empty or missing.")
 
 # ==============================================================================
-# COMPOSITE PRINT-READY CANVAS GENERATION (REPLACES PLT.SHOW)
+# PITCHER REPORT CARD (IMAGE GENERATION)
 # ==============================================================================
 st.markdown("---")
-st.subheader("📋 Pitcher Report Card")
+st.subheader("📋 Pitcher Report")
 st.caption("All the information above consolidated into one image. Right-click or tap and hold to save it for later!")
+st.markdown("<span id='pitcher-report'></span>", unsafe_allow_html=True)
 
-# Instantiate the full-scale canvas figure
-fig = plt.figure(figsize=(20, 20))
+with st.container():
+    # Instantiate the full-scale canvas figure
+    fig = plt.figure(figsize=(20, 20))
 
-# GridSpec configuration mapping: 6 rows, 8 columns
-gs = gridspec.GridSpec(
-    6, 
-    8,
-    height_ratios=[2, 20, 9, 36, 36, 7],
-    width_ratios=[1, 18, 18, 18, 18, 18, 18, 1]
-)
+    # GridSpec configuration mapping: 6 rows, 8 columns
+    gs = gridspec.GridSpec(
+        6, 
+        8,
+        height_ratios=[2, 20, 9, 36, 36, 7],
+        width_ratios=[1, 18, 18, 18, 18, 18, 18, 1]
+    )
 
-# Define the precise spatial layout subplots
-ax_headshot = fig.add_subplot(gs[1, 1:3])
-ax_bio      = fig.add_subplot(gs[1, 3:5])
-ax_logo     = fig.add_subplot(gs[1, 5:7])
+    # Define the precise spatial layout subplots
+    ax_headshot = fig.add_subplot(gs[1, 1:3])
+    ax_bio      = fig.add_subplot(gs[1, 3:5])
+    ax_logo     = fig.add_subplot(gs[1, 5:7])
 
-ax_season_table = fig.add_subplot(gs[2, 1:7])
+    ax_season_table = fig.add_subplot(gs[2, 1:7])
 
-# Note: Velocity distributions handle their own internal sub-gridspec inside the gs slot
-ax_plot_1 = fig.add_subplot(gs[3, 1:3])
-ax_plot_2 = fig.add_subplot(gs[3, 3:5])
-ax_plot_3 = fig.add_subplot(gs[3, 5:7])
+    # Note: Velocity distributions handle their own internal sub-gridspec inside the gs slot
+    ax_plot_1 = fig.add_subplot(gs[3, 1:3])
+    ax_plot_2 = fig.add_subplot(gs[3, 3:5])
+    ax_plot_3 = fig.add_subplot(gs[3, 5:7])
 
-ax_plot_1.grid(False)
-ax_plot_2.grid(False)
-ax_plot_3.grid(False)
+    ax_plot_1.grid(False)
+    ax_plot_2.grid(False)
+    ax_plot_3.grid(False)
 
-ax_table = fig.add_subplot(gs[4, 1:7])
-pos_table = ax_table.get_position()
-new_height = pos_table.height * 0.9
+    ax_table = fig.add_subplot(gs[4, 1:7])
+    pos_table = ax_table.get_position()
+    new_height = pos_table.height * 0.9
 
-# Re-apply the modified coordinates safely
-# This leaves the 'left' and 'width' completely unchanged, creates a vertical 
-# buffer space above the table headers, and pushes it away from Row 3 graphs.
-ax_table.set_position([pos_table.x0, pos_table.y0, pos_table.width, new_height])
+    # Re-apply the modified coordinates safely
+    # This leaves the 'left' and 'width' completely unchanged, creates a vertical 
+    # buffer space above the table headers, and pushes it away from Row 3 graphs.
+    ax_table.set_position([pos_table.x0, pos_table.y0, pos_table.width, new_height])
 
-# Border channels allocated for headers, footers, and crisp margins
-ax_header = fig.add_subplot(gs[0, 1:7])
-ax_footer = fig.add_subplot(gs[-1, 1:7])
-ax_left   = fig.add_subplot(gs[:, 0])
-ax_right  = fig.add_subplot(gs[:, -1])
+    # Border channels allocated for headers, footers, and crisp margins
+    ax_header = fig.add_subplot(gs[0, 1:7])
+    ax_footer = fig.add_subplot(gs[-1, 1:7])
+    ax_left   = fig.add_subplot(gs[:, 0])
+    ax_right  = fig.add_subplot(gs[:, -1])
 
-# Strip out structural axes lines from peripheral text wrappers
-ax_header.axis('off')
-ax_footer.axis('off')
-ax_left.axis('off')
-ax_right.axis('off')
+    # Strip out structural axes lines from peripheral text wrappers
+    ax_header.axis('off')
+    ax_footer.axis('off')
+    ax_left.axis('off')
+    ax_right.axis('off')
 
-# Render Top Row Core Biographical Components
-PitchVisualizer.render_headshot(pitcher_id, ax_headshot)
-PitchVisualizer.render_biographical_text(bio_meta, ax_bio)
-PitchVisualizer.render_logo(logo_url, ax_logo)
+    # Render Top Row Core Biographical Components
+    PitchVisualizer.render_headshot(pitcher_id, ax_headshot)
+    PitchVisualizer.render_biographical_text(bio_meta, ax_bio)
+    PitchVisualizer.render_logo(logo_url, ax_logo)
 
-# Render Row 2: Seasonal Summary Base Metrics Banner
-image_plotter.plot_fangraphs_table(df_fg_leaderboard, ax_season_table)
+    # Render Row 2: Seasonal Summary Base Metrics Banner
+    image_plotter.plot_fangraphs_table(df_fg_leaderboard, ax_season_table)
 
-# Render Row 3: Visual Tracking Subplots 
-# Pass the raw GridSpec slice directly to velocity tracking to let it manage stacked KDE layout layers cleanly
-# Avoid passing an initialized ax object to avoid axis collisions
-PitchVisualizer.render_velocity_distributions(df_processed, ax_plot_1, fig, df_statcast_league_averages)
-PitchVisualizer.render_rolling_pitch_usage(df_processed, ax_plot_2, window=5)
-PitchVisualizer.render_break_plot(df_processed, ax_plot_3, bio_meta)
+    # Render Row 3: Visual Tracking Subplots 
+    # Pass the raw GridSpec slice directly to velocity tracking to let it manage stacked KDE layout layers cleanly
+    # Avoid passing an initialized ax object to avoid axis collisions
+    PitchVisualizer.render_velocity_distributions(df_processed, ax_plot_1, fig, df_statcast_league_averages)
+    PitchVisualizer.render_rolling_pitch_usage(df_processed, ax_plot_2, window=5)
+    PitchVisualizer.render_break_plot(df_processed, ax_plot_3, bio_meta)
 
-# Render Row 4: Polished Color-Coded Statcast Spreadsheet Layout Matrix
-PitchVisualizer.render_pitch_metrics_table(df_group, df_statcast_league_averages, pitch_colors_list, ax_table)
+    # Render Row 4: Polished Color-Coded Statcast Spreadsheet Layout Matrix
+    PitchVisualizer.render_pitch_metrics_table(df_group, df_statcast_league_averages, pitch_colors_list, ax_table)
 
-# Populate Metadata Canvas Guidelines inside the structural Footer Axis
-ax_footer.text(0.0, 1.0, "Template By: @TJStats\nApp Implementation By: Ryan Apolinar", ha="left", va="top", fontsize=12, color="#4A5568")
-ax_footer.text(1.0, 1.0, "Data Sources: MLB Statcast & FanGraphs", ha="right", va="top", fontsize=12, color="#4A5568")
+    # Populate Metadata Canvas Guidelines inside the structural Footer Axis
+    ax_footer.text(0.0, 1.0, "Template By: @TJStats\nApp Implementation By: Ryan Apolinar", ha="left", va="top", fontsize=12, color="#4A5568")
+    ax_footer.text(1.0, 1.0, "Data Sources: MLB Statcast & FanGraphs", ha="right", va="top", fontsize=12, color="#4A5568")
 
-# Execute direct rendering into Streamlit container
-st.pyplot(fig, width='content')
+    # Execute direct rendering into Streamlit container
+    st.pyplot(fig, width='content')
