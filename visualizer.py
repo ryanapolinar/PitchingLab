@@ -328,11 +328,10 @@ class PitchVisualizer:
                 throws = str(hand_data)
         
         throws = throws.upper().strip()
-
         if throws == "L":
-            x_label_text = "← Arm Side | Horizontal Break (in) | Glove Side →"
-        else:
             x_label_text = "← Glove Side | Horizontal Break (in) | Arm Side →"
+        else:
+            x_label_text = "← Arm Side | Horizontal Break (in) | Glove Side →"
         
         # 5. Formatting axis typography and structural labels
         ax.set_xlabel(x_label_text, fontsize=10, labelpad=5, fontweight='semibold', color='#4A5568')
