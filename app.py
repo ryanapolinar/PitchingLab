@@ -71,7 +71,7 @@ with st.container():
     
     with col_bio:
         fig_bio, ax_bio = plt.subplots(figsize=(6, 2))
-        PitchVisualizer.render_biographical_text(bio_meta, ax_bio)
+        PitchVisualizer.render_biographical_text(bio_meta, ax_bio, season_year)
         st.pyplot(fig_bio)
         
     with col_logo:
@@ -438,7 +438,7 @@ with st.container():
 
     # Render Top Row Core Biographical Components
     PitchVisualizer.render_headshot(pitcher_id, ax_headshot)
-    PitchVisualizer.render_biographical_text(bio_meta, ax_bio)
+    PitchVisualizer.render_biographical_text(bio_meta, ax_bio, season_year)
     PitchVisualizer.render_logo(logo_url, ax_logo)
 
     # Render Row 2: Seasonal Summary Base Metrics Banner

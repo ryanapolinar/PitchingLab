@@ -44,7 +44,7 @@ class PitchVisualizer:
         ax.axis('off')
 
     @staticmethod
-    def render_biographical_text(bio_data: dict, ax: plt.Axes):
+    def render_biographical_text(bio_data: dict, ax: plt.Axes, season):
         name = bio_data.get('fullName', 'Unknown Profile')
         hand = bio_data.get('pitchHand', {}).get('code', 'R')
         age = bio_data.get('currentAge', '--')
@@ -52,7 +52,8 @@ class PitchVisualizer:
         weight = bio_data.get('weight', '--')
 
         ax.text(0.5, 0.95, name, va='top', ha='center', fontsize=22, weight='bold')
-        ax.text(0.5, 0.60, f'{hand}HP\nAge: {age}\nHeight: {height}\nWeight: {weight}', va='top', ha='center', fontsize=12)
+        ax.text(0.5, 0.75, f'{hand}HP\nAge: {age}\nHeight: {height}\nWeight: {weight}', va='top', ha='center', fontsize=12)
+        ax.text(0.5, 0.2, f'{season} MLB Season Pitching Summary', va='top', ha='center', weight='bold', fontsize=16)
         ax.axis('off')
 
     @staticmethod
